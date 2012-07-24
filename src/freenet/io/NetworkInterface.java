@@ -74,7 +74,7 @@ public class NetworkInterface implements Closeable {
 	private int timeout = 0;
 
 	/** The port to bind to. */
-	private final int port;
+	private int port;
 
 	/** The number of running acceptors. */
 	private int runningAcceptors = 0;
@@ -156,6 +156,22 @@ public class NetworkInterface implements Closeable {
 			ServerSocket serverSocket = createServerSocket();
 			InetSocketAddress addr = null;
 			try {
+				ServerSocket testSocket = null;
+				Boolean portTaken = true;
+				Integer currentPort = port;
+				while (portTaken) {
+					try {
+					    testSocket = new ServerSocket(currentPort);
+					    port = currentPort;
+					    portTaken = false;
+					} catch (IOException e) {
+					    portTaken = true;
+					} finally { 
+					    // Clean up
+					    if (testSocket != null) testSocket.close(); 
+					}
+					currentPort++;
+				}
 				addr = new InetSocketAddress(bindToTokenList.get(serverSocketIndex), port);
 				serverSocket.setReuseAddress(true);
 				serverSocket.bind(addr);

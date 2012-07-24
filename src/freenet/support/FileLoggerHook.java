@@ -579,7 +579,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 					}
 					olf = logFiles.removeFirst();
 				}
-				olf.filename.delete();
+//				olf.filename.delete();
 				oldLogFilesDiskSpaceUsage -= olf.size;
 		    	if(logMINOR)
 		    		Logger.minor(this, "Deleting "+olf.filename+" - saving "+olf.size+

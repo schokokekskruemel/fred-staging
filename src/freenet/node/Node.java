@@ -877,6 +877,10 @@ public class Node implements TimeSkewDetectorCallback {
 		swapIdentifier = Fields.bytesToLong(darknetCrypto.identityHashHash);
 		String loc = fs.get("location");
 		double locD = Location.getLocation(loc);
+//		locD = locD + 0.01;
+//		if (locD > 1) {
+//			locD = locD -1;
+//		}
 		if (locD == -1.0)
 			throw new IOException("Invalid location: " + loc);
 		lm.setLocation(locD);
@@ -3961,28 +3965,28 @@ public class Node implements TimeSkewDetectorCallback {
 	 * @return The number of hops it took to find the node, if it was found.
 	 * Otherwise -1.
 	 */
-	public int routedPing(double loc2, byte[] nodeIdentity) {
+	public int routedPing(double loc, byte[] nodeIdentity) {
 		long uid = random.nextLong();
 		int initialX = random.nextInt();
-		Message m = DMT.createFNPRoutedPing(uid, loc2, maxHTL, initialX, nodeIdentity);
-		Logger.normal(this, "Message: "+m);
-
+		Message m = DMT.createFNPRoutedPing(uid, loc, (short)50, initialX, nodeIdentity);
 		dispatcher.handleRouted(m, null);
-		// FIXME: might be rejected
-		MessageFilter mf1 = MessageFilter.create().setField(DMT.UID, uid).setType(DMT.FNPRoutedPong).setTimeout(5000);
+		MessageFilter mf1 = MessageFilter.create().setField(DMT.UID, uid).setType(DMT.FNPRoutedPong).setTimeout(15000);
 		try {
-			//MessageFilter mf2 = MessageFilter.create().setField(DMT.UID, uid).setType(DMT.FNPRoutedRejected).setTimeout(5000);
-			// Ignore Rejected - let it be retried on other peers
+//			MessageFilter mf2 = MessageFilter.create().setField(DMT.UID, uid).setType(DMT.FNPRoutedRejected).setTimeout(20000);
 			m = usm.waitFor(mf1/*.or(mf2)*/, null);
 		} catch (DisconnectedException e) {
 			Logger.normal(this, "Disconnected in waiting for pong");
 			return -1;
 		}
-		if(m == null) return -1;
-		if(m.getSpec() == DMT.FNPRoutedRejected) return -1;
+		
+		if(m == null)  return -1;
+		
+		if (m.getSpec() == DMT.FNPRoutedRejected) return -1;
+		
 		return m.getInt(DMT.COUNTER) - initialX;
 	}
-
+	
+	
 	/**
 	 * Look for a block in the datastore, as part of a request.
 	 * @param key The key to fetch.

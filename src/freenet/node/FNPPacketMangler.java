@@ -71,6 +71,7 @@ import freenet.support.io.NativeThread;
 public class FNPPacketMangler implements OutgoingPacketMangler {
 	private static volatile boolean logMINOR;
 	private static volatile boolean logDEBUG;
+	private static volatile boolean logCUSTOM;
 
 	static {
 		Logger.registerLogThresholdCallback(new LogThresholdCallback() {
@@ -78,6 +79,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 			public void shouldUpdate() {
 				logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
 				logDEBUG = Logger.shouldLog(LogLevel.DEBUG, this);
+				logCUSTOM = Logger.shouldLog(LogLevel.CUSTOM, this);
 			}
 		});
 	}
@@ -228,6 +230,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 	 */
 	public DECODED process(byte[] buf, int offset, int length, Peer peer, PeerNode opn, long now) {
 
+		if(logCUSTOM) Logger.custom(this, "Process incoming packet from Peer " + opn.toString());
 		if(opn != null && opn.getOutgoingMangler() != this) {
 			Logger.error(this, "Apparently contacted by "+opn+") on "+this, new Exception("error"));
 			opn = null;
@@ -2069,6 +2072,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 	}
 
 	private void sendPacket(byte[] data, Peer replyTo, PeerNode pn) throws LocalAddressException {
+		if (logCUSTOM) Logger.custom(this, "Process outgoing packet to Peer " + pn.toString());
 		if(pn != null) {
 			if(pn.isIgnoreSource()) {
 				Peer p = pn.getPeer();

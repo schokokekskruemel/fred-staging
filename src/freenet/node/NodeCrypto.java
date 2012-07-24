@@ -3,7 +3,9 @@
  * http://www.gnu.org/ for further details of the GPL. */
 package freenet.node;
 
+import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
@@ -47,6 +49,7 @@ import freenet.support.io.Closer;
 
 /**
  * Cryptographic and transport level node identity.
+ * 
  * @author toad
  */
 public class NodeCrypto {
@@ -56,10 +59,14 @@ public class NodeCrypto {
 	final Node node;
 	final boolean isOpennet;
 	final RandomSource random;
-	/** The object which handles our specific UDP port, pulls messages from it, feeds them to the packet mangler for decryption etc */
+	/**
+	 * The object which handles our specific UDP port, pulls messages from it,
+	 * feeds them to the packet mangler for decryption etc
+	 */
 	final UdpSocketHandler socket;
 	public FNPPacketMangler packetMangler;
-	// FIXME: abstract out address stuff? Possibly to something like NodeReference?
+	// FIXME: abstract out address stuff? Possibly to something like
+	// NodeReference?
 	final int portNumber;
 	byte[] myIdentity; // FIXME: simple identity block; should be unique
 	/** Hash of identity. Used as setup key. */
@@ -84,6 +91,8 @@ public class NodeCrypto {
 	final NodeIPPortDetector detector;
 	final BlockCipher anonSetupCipher;
 
+	private boolean refWritten = false;
+
 	// Noderef related
 	/** An ordered version of the noderef FieldSet, without the signature */
 	private String mySignedReference = null;
@@ -92,20 +101,24 @@ public class NodeCrypto {
 	/** A synchronization object used while signing the reference fieldset */
 	private volatile Object referenceSync = new Object();
 
-        private static volatile boolean logMINOR;
+	private static volatile boolean logMINOR;
 	static {
-		Logger.registerLogThresholdCallback(new LogThresholdCallback(){
+		Logger.registerLogThresholdCallback(new LogThresholdCallback() {
 			@Override
-			public void shouldUpdate(){
+			public void shouldUpdate() {
 				logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
 			}
 		});
 	}
+
 	/**
 	 * Get port number from a config, create socket and packet mangler
+	 * 
 	 * @throws NodeInitException
 	 */
-	public NodeCrypto(final Node node, final boolean isOpennet, NodeCryptoConfig config, long startupTime, boolean enableARKs) throws NodeInitException {
+	public NodeCrypto(final Node node, final boolean isOpennet,
+			NodeCryptoConfig config, long startupTime, boolean enableARKs)
+			throws NodeInitException {
 
 		this.node = node;
 		this.config = config;
@@ -116,55 +129,68 @@ public class NodeCrypto {
 
 		try {
 
-		int port = config.getPort();
+			int port = config.getPort();
 
-		FreenetInetAddress bindto = config.getBindTo();
+			FreenetInetAddress bindto = config.getBindTo();
 
-		UdpSocketHandler u = null;
+			UdpSocketHandler u = null;
 
-		if(port > 65535) {
-			throw new NodeInitException(NodeInitException.EXIT_IMPOSSIBLE_USM_PORT, "Impossible port number: "+port);
-		} else if(port == -1) {
-			// Pick a random port
-			for(int i=0;i<200000;i++) {
-				int portNo = 1024 + random.nextInt(65535-1024);
+			if (port > 65535) {
+				throw new NodeInitException(
+						NodeInitException.EXIT_IMPOSSIBLE_USM_PORT,
+						"Impossible port number: " + port);
+			} else if (port == -1) {
+				// Pick a random port
+				for (int i = 0; i < 200000; i++) {
+					int portNo = 1024 + random.nextInt(65535 - 1024);
+					try {
+						u = new UdpSocketHandler(portNo, bindto.getAddress(),
+								node, startupTime, getTitle(portNo),
+								node.collector);
+						port = u.getPortNumber();
+						break;
+					} catch (Exception e) {
+						Logger.normal(this, "Could not use port: " + bindto
+								+ ':' + portNo + ": " + e, e);
+						System.err.println("Could not use port: " + bindto
+								+ ':' + portNo + ": " + e);
+						e.printStackTrace();
+						continue;
+					}
+				}
+				if (u == null)
+					throw new NodeInitException(
+							NodeInitException.EXIT_NO_AVAILABLE_UDP_PORTS,
+							"Could not find an available UDP port number for FNP (none specified)");
+			} else {
 				try {
-					u = new UdpSocketHandler(portNo, bindto.getAddress(), node, startupTime, getTitle(portNo), node.collector);
-					port = u.getPortNumber();
-					break;
+					u = new UdpSocketHandler(port, bindto.getAddress(), node,
+							startupTime, getTitle(port), node.collector);
 				} catch (Exception e) {
-					Logger.normal(this, "Could not use port: "+bindto+ ':' +portNo+": "+e, e);
-					System.err.println("Could not use port: "+bindto+ ':' +portNo+": "+e);
+					Logger.error(this, "Caught " + e, e);
+					System.err.println(e);
 					e.printStackTrace();
-					continue;
+					throw new NodeInitException(
+							NodeInitException.EXIT_IMPOSSIBLE_USM_PORT,
+							"Could not bind to port: " + port
+									+ " (node already running?)");
 				}
 			}
-			if(u == null)
-				throw new NodeInitException(NodeInitException.EXIT_NO_AVAILABLE_UDP_PORTS, "Could not find an available UDP port number for FNP (none specified)");
-		} else {
-			try {
-				u = new UdpSocketHandler(port, bindto.getAddress(), node, startupTime, getTitle(port), node.collector);
-			} catch (Exception e) {
-				Logger.error(this, "Caught "+e, e);
-				System.err.println(e);
-				e.printStackTrace();
-				throw new NodeInitException(NodeInitException.EXIT_IMPOSSIBLE_USM_PORT, "Could not bind to port: "+port+" (node already running?)");
-			}
-		}
-		socket = u;
+			socket = u;
 
-		Logger.normal(this, "FNP port created on "+bindto+ ':' +port);
-		System.out.println("FNP port created on "+bindto+ ':' +port);
-		portNumber = port;
-		config.setPort(port);
+			Logger.normal(this, "FNP port created on " + bindto + ':' + port);
+			System.out.println("FNP port created on " + bindto + ':' + port);
+			portNumber = port;
+			config.setPort(port);
 
-		socket.setDropProbability(config.getDropProbability());
+			socket.setDropProbability(config.getDropProbability());
 
-		packetMangler = new FNPPacketMangler(node, this, socket);
+			packetMangler = new FNPPacketMangler(node, this, socket);
 
-		detector = new NodeIPPortDetector(node, node.ipDetector, this, enableARKs);
+			detector = new NodeIPPortDetector(node, node.ipDetector, this,
+					enableARKs);
 
-		anonSetupCipher = new Rijndael(256,256);
+			anonSetupCipher = new Rijndael(256, 256);
 
 		} catch (NodeInitException e) {
 			config.stopping(this);
@@ -190,12 +216,13 @@ public class NodeCrypto {
 
 	/**
 	 * Read the cryptographic keys etc from a SimpleFieldSet
+	 * 
 	 * @param fs
 	 * @throws IOException
 	 */
 	public void readCrypto(SimpleFieldSet fs) throws IOException {
 		String identity = fs.get("identity");
-		if(identity == null)
+		if (identity == null)
 			throw new IOException();
 		try {
 			myIdentity = Base64.decode(identity);
@@ -208,15 +235,16 @@ public class NodeCrypto {
 
 		try {
 			cryptoGroup = DSAGroup.create(fs.subset("dsaGroup"));
-			privKey = DSAPrivateKey.create(fs.subset("dsaPrivKey"), cryptoGroup);
+			privKey = DSAPrivateKey
+					.create(fs.subset("dsaPrivKey"), cryptoGroup);
 			pubKey = DSAPublicKey.create(fs.subset("dsaPubKey"), cryptoGroup);
 			pubKeyHash = SHA256.digest(pubKey.asBytes());
 			pubKeyHashHash = SHA256.digest(pubKeyHash);
 		} catch (IllegalBase64Exception e) {
-			Logger.error(this, "Caught "+e, e);
+			Logger.error(this, "Caught " + e, e);
 			throw new IOException(e.toString());
 		} catch (FSParseException e) {
-			Logger.error(this, "Caught "+e, e);
+			Logger.error(this, "Caught " + e, e);
 			throw new IOException(e.toString());
 		}
 		InsertableClientSSK ark = null;
@@ -227,10 +255,10 @@ public class NodeCrypto {
 
 		String privARK = fs.get("ark.privURI");
 		try {
-			if(privARK != null) {
+			if (privARK != null) {
 				FreenetURI uri = new FreenetURI(privARK);
 				ark = InsertableClientSSK.create(uri);
-				if(s == null) {
+				if (s == null) {
 					ark = null;
 					myARKNumber = 0;
 				} else {
@@ -243,21 +271,21 @@ public class NodeCrypto {
 				}
 			}
 		} catch (MalformedURLException e) {
-			Logger.minor(this, "Caught "+e, e);
+			Logger.minor(this, "Caught " + e, e);
 			ark = null;
 		}
-		if(ark == null) {
+		if (ark == null) {
 			ark = InsertableClientSSK.createRandom(random, "ark");
 			myARKNumber = 0;
 		}
 		myARK = ark;
 
 		String cn = fs.get("clientNonce");
-		if(cn != null) {
+		if (cn != null) {
 			try {
 				clientNonce = Base64.decode(cn);
 			} catch (IllegalBase64Exception e) {
-				throw new IOException("Invalid clientNonce field: "+e);
+				throw new IOException("Invalid clientNonce field: " + e);
 			}
 		} else {
 			clientNonce = new byte[32];
@@ -290,7 +318,8 @@ public class NodeCrypto {
 
 	public void start() {
 		socket.calculateMaxPacketSize();
-		socket.setLowLevelFilter(new IncomingPacketFilterImpl(packetMangler, node, this));
+		socket.setLowLevelFilter(new IncomingPacketFilterImpl(packetMangler,
+				node, this));
 		packetMangler.start();
 		socket.start();
 	}
@@ -302,8 +331,9 @@ public class NodeCrypto {
 	}
 
 	/**
-	 * Export my node reference so that another node can connect to me.
-	 * Public version, includes everything apart from private keys.
+	 * Export my node reference so that another node can connect to me. Public
+	 * version, includes everything apart from private keys.
+	 * 
 	 * @see exportPublicFieldSet(boolean forSetup).
 	 */
 	public SimpleFieldSet exportPublicFieldSet() {
@@ -312,39 +342,67 @@ public class NodeCrypto {
 
 	/**
 	 * Export my reference so that another node can connect to me.
-	 * @param forSetup If true, strip out everything that isn't needed for the references
-	 * exchanged immediately after connection setup. I.e. strip out everything that is invariant,
-	 * or that can safely be exchanged later.
-	 * @param forAnonInitiator If true, we are adding a node from an anonymous initiator noderef
-	 * exchange. Minimal noderef which we can construct a PeerNode from. Short lived so no ARK etc.
-	 * Already signed so dump the signature.
+	 * 
+	 * @param forSetup
+	 *            If true, strip out everything that isn't needed for the
+	 *            references exchanged immediately after connection setup. I.e.
+	 *            strip out everything that is invariant, or that can safely be
+	 *            exchanged later.
+	 * @param forAnonInitiator
+	 *            If true, we are adding a node from an anonymous initiator
+	 *            noderef exchange. Minimal noderef which we can construct a
+	 *            PeerNode from. Short lived so no ARK etc. Already signed so
+	 *            dump the signature.
 	 */
-	SimpleFieldSet exportPublicFieldSet(boolean forSetup, boolean forAnonInitiator, boolean forARK) {
-		SimpleFieldSet fs = exportPublicCryptoFieldSet(forSetup || forARK, forAnonInitiator);
-		if((!forAnonInitiator) && (!forSetup)) {
+	SimpleFieldSet exportPublicFieldSet(boolean forSetup,
+			boolean forAnonInitiator, boolean forARK) {
+		SimpleFieldSet fs = exportPublicCryptoFieldSet(forSetup || forARK,
+				forAnonInitiator);
+		if ((!forAnonInitiator) && (!forSetup)) {
 			// IP addresses
 			Peer[] ips = detector.detectPrimaryPeers();
-			if(ips != null) {
-				for(int i=0;i<ips.length;i++)
-					fs.putAppend("physical.udp", ips[i].toString()); // Keep; important that node know all our IPs
+			if (ips != null) {
+				for (int i = 0; i < ips.length; i++)
+					fs.putAppend("physical.udp", ips[i].toString()); // Keep;
+																		// important
+																		// that
+																		// node
+																		// know
+																		// all
+																		// our
+																		// IPs
 			}
 		} // Don't include IPs for anonymous initiator.
-		// Negotiation types
-		fs.putSingle("version", Version.getVersionString()); // Keep, vital that peer know our version. For example, some types may be sent in different formats to different node versions (e.g. Peer).
-		if(!forAnonInitiator)
-			fs.putSingle("lastGoodVersion", Version.getLastGoodVersionString()); // Also vital
-		if(node.isTestnetEnabled()) {
+			// Negotiation types
+		fs.putSingle("version", Version.getVersionString()); // Keep, vital that
+																// peer know our
+																// version. For
+																// example, some
+																// types may be
+																// sent in
+																// different
+																// formats to
+																// different
+																// node versions
+																// (e.g. Peer).
+		if (!forAnonInitiator)
+			fs.putSingle("lastGoodVersion", Version.getLastGoodVersionString()); // Also
+																					// vital
+		if (node.isTestnetEnabled()) {
 			fs.put("testnet", true);
-			//fs.put("testnetPort", node.testnetHandler.getPort()); // Useful, saves a lot of complexity
+			// fs.put("testnetPort", node.testnetHandler.getPort()); // Useful,
+			// saves a lot of complexity
 		}
-		if((!isOpennet) && (!forSetup) && (!forARK))
+		if ((!isOpennet) && (!forSetup) && (!forARK))
 			fs.putSingle("myName", node.getMyName());
 
-		if(!forAnonInitiator) {
-			// Anonymous initiator setup type specifies whether the node is opennet or not.
+		if (!forAnonInitiator) {
+			// Anonymous initiator setup type specifies whether the node is
+			// opennet or not.
 			fs.put("opennet", isOpennet);
 			synchronized (referenceSync) {
-				if(myReferenceSignature == null || mySignedReference == null || !mySignedReference.equals(fs.toOrderedString())){
+				if (myReferenceSignature == null || mySignedReference == null
+						|| !mySignedReference.equals(fs.toOrderedString())) {
 					mySignedReference = fs.toOrderedString();
 					try {
 						myReferenceSignature = signRef(mySignedReference);
@@ -356,57 +414,165 @@ public class NodeCrypto {
 			}
 		}
 
-		if(logMINOR) Logger.minor(this, "My reference: "+fs.toOrderedString());
+		if (logMINOR)
+			Logger.minor(this, "My reference: " + fs.toOrderedString());
+//		if (!refWritten) {
+//			if (fs.get("opennet").equals("false") && (!forSetup)
+//					&& (!forAnonInitiator) && (!forARK)) {
+//				try {
+//					String ls = System.getProperty("line.separator");
+//					FileWriter fstream = new FileWriter("myref.txt");
+//					BufferedWriter out = new BufferedWriter(fstream);
+//					// General
+//					out.write("opennet=" + fs.get("opennet") + ls);
+//					out.write("identity=" + fs.get("identity") + ls);
+//					out.write("myName=" + fs.get("myName") + ls);
+//					out.write("lastGoodVersion=" + fs.get("lastGoodVersion")
+//							+ ls);
+//					// out.write("location=" + this.node.getLocation() + ls);
+//
+//					out.write("sig=" + fs.get("sig") + ls);
+//					out.write("version=" + fs.get("version") + ls);
+//					out.write("dsaPubKey.y="
+//							+ fs.getSubset("dsaPubKey").get("y") + ls);
+//					out.write("physical.udp=" + fs.get("physical.udp") + ls);
+//					out.write("dsaGroup.g=" + fs.getSubset("dsaGroup").get("g")
+//							+ ls);
+//					out.write("dsaGroup.q=" + fs.getSubset("dsaGroup").get("q")
+//							+ ls);
+//					out.write("dsaGroup.p=" + fs.getSubset("dsaGroup").get("p")
+//							+ ls);
+//					out.write("ark.pubURI=" + fs.get("ark.pubURI") + ls);
+//					out.write("ark.number=" + fs.get("ark.number") + ls);
+//					out.write("auth.negTypes=" + fs.get("auth.negTypes") + ls);
+//
+//					out.write("End");
+//					out.close();
+//					refWritten = true;
+//				} catch (IOException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				} catch (FSParseException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				}
+//			}
+//		}
+
 		return fs;
 	}
 
-	SimpleFieldSet exportPublicCryptoFieldSet(boolean forSetup, boolean forAnonInitiator) {
+	SimpleFieldSet exportPublicCryptoFieldSet(boolean forSetup,
+			boolean forAnonInitiator) {
 		SimpleFieldSet fs = new SimpleFieldSet(true);
 		int[] negTypes = packetMangler.supportedNegTypes(true);
-		if(!(forSetup || forAnonInitiator))
+		if (!(forSetup || forAnonInitiator))
 			// Can't change on setup.
 			// Anonymous initiator doesn't need identity as we don't use it.
 			fs.putSingle("identity", Base64.encode(myIdentity));
-		if(!forSetup) {
-			// These are invariant. They cannot change on connection setup. They can safely be excluded.
+		if (!forSetup) {
+			// These are invariant. They cannot change on connection setup. They
+			// can safely be excluded.
 			fs.put("dsaGroup", cryptoGroup.asFieldSet());
 			fs.put("dsaPubKey", pubKey.asFieldSet());
 		}
-		if(!forAnonInitiator) {
-			// Short-lived connections don't need ARK and don't need negTypes either.
+		if (!forAnonInitiator) {
+			// Short-lived connections don't need ARK and don't need negTypes
+			// either.
 			fs.put("auth.negTypes", negTypes);
-			if(!forSetup) {
+			if (!forSetup) {
 				fs.put("ark.number", myARKNumber); // Can be changed on setup
-				fs.putSingle("ark.pubURI", myARK.getURI().toString(false, false)); // Can be changed on setup
+				fs.putSingle("ark.pubURI", myARK.getURI()
+						.toString(false, false)); // Can be changed on setup
 			}
 		}
 		return fs;
 	}
 
 	DSASignature signRef(String mySignedReference) throws NodeInitException {
-		if(logMINOR) Logger.minor(this, "Signing reference:\n"+mySignedReference);
+		if (logMINOR)
+			Logger.minor(this, "Signing reference:\n" + mySignedReference);
 
-		try{
+		try {
 			byte[] ref = mySignedReference.getBytes("UTF-8");
 			BigInteger m = new BigInteger(1, SHA256.digest(ref));
-			if(logMINOR) Logger.minor(this, "m = "+m.toString(16));
+			if (logMINOR)
+				Logger.minor(this, "m = " + m.toString(16));
 			DSASignature _signature = DSA.sign(cryptoGroup, privKey, m, random);
-			if(logMINOR && !DSA.verify(pubKey, _signature, m, false))
-				throw new NodeInitException(NodeInitException.EXIT_EXCEPTION_TO_DEBUG, mySignedReference);
+			if (logMINOR && !DSA.verify(pubKey, _signature, m, false))
+				throw new NodeInitException(
+						NodeInitException.EXIT_EXCEPTION_TO_DEBUG,
+						mySignedReference);
 			return _signature;
-		} catch(UnsupportedEncodingException e){
-			//duh ?
+		} catch (UnsupportedEncodingException e) {
+			// duh ?
 			Logger.error(this, "Error while signing the node identity!" + e, e);
-			System.err.println("Error while signing the node identity!"+e);
+			System.err.println("Error while signing the node identity!" + e);
 			e.printStackTrace();
-			throw new NodeInitException(NodeInitException.EXIT_CRAPPY_JVM, "Impossible: JVM doesn't support UTF-8");
+			throw new NodeInitException(NodeInitException.EXIT_CRAPPY_JVM,
+					"Impossible: JVM doesn't support UTF-8");
 		}
 	}
 
-	private byte[] myCompressedRef(boolean setup, boolean heavySetup, boolean forARK) {
+	public void writeOpennetRef() {
+		SimpleFieldSet fs = exportPublicFieldSet(false, false, false);
+		// opennet=true
+		// identity=Wgeueaj~Q3muHzM7878qovT1WbBKQrqPPUu1VJEiylc
+		// lastGoodVersion=Fred,0.7,1.0,1407
+		// sig=26c218ab7ca9d5277d6da34e423476ef9997332d4f1d715ed4375eb57647b6ba,07ff28b3cbc015a2ef3b52b49fc2dc399287874ad7ffa09187a79a8bd1c68ffc
+		// version=Fred,0.7,1.0,1407
+		// dsaPubKey.y=ZAvsEyhCd6~lgRjNmP1U3616Wow0~w46i8SyKAkbxyCx5g~fqOgkNYxc0wISpHWg3oBHTw0uk~dSa-AEUJ18RildplfT-5uZLpY59t6R6zZ98XN012W6rosKqHCQFHR2wt0H~uTNsvZFQUfr8ayvuJmlKXgCzdp5lVGnkDaz5BJpbGQ7MZuf0JxudCW4QMNEK4cwhwu76tGutmkQan5u1HpK78WfGdvetzY8MDoW-ribTREbIhI4kVuBW4muPnKRZvb7Z0VfqBeS6TWuCkFCna8bQ1dHTlGTkBeR0KOpCIS543w-h7fRYvpCRCHSAvj7-P~lSOa3Z~YgNjWQWGWx1g
+		// physical.udp=130.83.163.245:50958
+		// dsaGroup.g=UaRatnDByf0QvTlaaAXTMzn1Z15LDTXe-J~gOqXCv0zpz83CVngSkb--bVRuZ9R65OFg~ATKcuw8VJJwn1~A9p5jRt2NPj2EM7bu72O85-mFdBhcav8WHJtTbXb4cxNzZaQkbPQUv~gEnuEeMTc80KZVjilQ7wlTIM6GIY~ZJVHMKSIkEU87YBRtIt1R~BJcnaDAKBJv~oXv1PS-6iwQRFMynMEmipfpqDXBTkqaQ8ahiGWA41rY8d4jDhrzIgjvkzfxkkcCpFFOldwW8w8MEecUoRLuhKnY1sm8nnTjNlYLtc1Okeq-ba0mvwygSAf4wxovwY6n1Fuqt8yZe1PDVg
+		// dsaGroup.q=ALFDNoq81R9Y1kQNVBc5kzmk0VvvCWosXY5t9E9S1tN5
+		// dsaGroup.p=AIYIrE9VNhM38qPjirGGT-PJjWZBHY0q-JxSYyDFQfZQeOhrx4SUpdc~SppnWD~UHymT7WyX28eV3YjwkVyc~--H5Tc83hPjx8qQc7kQbrMb~CJy7QBX~YSocKGfioO-pwfRZEDDguYtOJBHPqeenVDErGsfHTCxDDKgL2hYM8Ynj8Kes0OcUzOIVhShFSGbOAjJKjeg82XNXmG1hhdh2tnv8M4jJQ9ViEj425Mrh6O9jXovfPmcdYIr3C~3waHXjQvPgUiK4N5Saf~FOri48fK-PmwFZFc-YSgI9o2-70nVybSnBXlM96QkzU6x4CYFUuZ7-B~je0ofeLdX7xhehuk
+		// ark.pubURI=SSK@93C7phxvjdZMUkCGkYXZRxxFiUmWbmF5yaUzEECUVt0,gcor96uK-iLcXUkYd2hPOHN0blfD0ufdub2zCOTtJ7c,AQACAAE/ark
+		// ark.number=5
+		// auth.negTypes=2;4;6;7
+		// End
+
+		try {
+			FileWriter opennetRefWriter = new FileWriter("myOpennetRef.txt");
+			BufferedWriter opennetRef = new BufferedWriter(opennetRefWriter);
+			String ls = System.getProperty("line.separator");
+
+			opennetRef.write("opennet=true" + ls);
+			opennetRef.write("identity=" + fs.get("identity") + ls);
+			opennetRef.write("lastGoodVersion=" + fs.get("lastGoodVersion")
+					+ ls);
+			opennetRef.write("sig=" + fs.get("sig") + ls);
+			opennetRef.write("version=" + fs.get("version") + ls);
+			opennetRef.write("dsaPubKey.y="
+					+ fs.getSubset("dsaPubKey").get("y") + ls);
+			opennetRef.write("physical.udp=" + fs.get("physical.udp") + ls);
+			opennetRef.write("dsaGroup.g=" + fs.getSubset("dsaGroup").get("g")
+					+ ls);
+			opennetRef.write("dsaGroup.q=" + fs.getSubset("dsaGroup").get("q")
+					+ ls);
+			opennetRef.write("dsaGroup.p=" + fs.getSubset("dsaGroup").get("p")
+					+ ls);
+			opennetRef.write("ark.pubURI=" + fs.get("ark.pubURI") + ls);
+			opennetRef.write("ark.number=" + fs.get("ark.number") + ls);
+			opennetRef.write("auth.negTypes=" + fs.get("auth.negTypes") + ls);
+			opennetRef.write("End");
+
+			opennetRef.close();
+
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (FSParseException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	private byte[] myCompressedRef(boolean setup, boolean heavySetup,
+			boolean forARK) {
 		SimpleFieldSet fs = exportPublicFieldSet(setup, heavySetup, forARK);
-		boolean shouldStripGroup = heavySetup && Global.DSAgroupBigA.equals(cryptoGroup);
-		if(shouldStripGroup)
+		boolean shouldStripGroup = heavySetup
+				&& Global.DSAgroupBigA.equals(cryptoGroup);
+		if (shouldStripGroup)
 			fs.removeSubset("dsaGroup");
 
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -414,34 +580,42 @@ public class NodeCrypto {
 		gis = new DeflaterOutputStream(baos);
 		try {
 			fs.writeTo(gis);
-                } catch (IOException e) {
-                    Logger.error(this, "IOE :"+e.getMessage(), e);
+		} catch (IOException e) {
+			Logger.error(this, "IOE :" + e.getMessage(), e);
 		} finally {
 			Closer.close(gis);
-                        Closer.close(baos);
+			Closer.close(baos);
 		}
 
 		byte[] buf = baos.toByteArray();
-		if(buf.length >= 4096)
-			throw new IllegalStateException("We are attempting to send a "+buf.length+" bytes big reference!");
+		if (buf.length >= 4096)
+			throw new IllegalStateException("We are attempting to send a "
+					+ buf.length + " bytes big reference!");
 		byte[] obuf = new byte[buf.length + 1 + (shouldStripGroup ? 1 : 0)];
 		int offset = 0;
-		if(shouldStripGroup) {
+		if (shouldStripGroup) {
 			obuf[offset++] = 0x3; // compressed noderef - group
 			int dsaGroupIndex = Global.GROUP_INDEX_BIG_A;
-			if(logMINOR)
-				Logger.minor(this, "We are stripping the group from the reference as it's a known group (groupIndex="+dsaGroupIndex+')');
-			obuf[offset++] = (byte)(dsaGroupIndex & 0xff);
+			if (logMINOR)
+				Logger.minor(
+						this,
+						"We are stripping the group from the reference as it's a known group (groupIndex="
+								+ dsaGroupIndex + ')');
+			obuf[offset++] = (byte) (dsaGroupIndex & 0xff);
 		} else
 			obuf[offset++] = 0x01; // compressed noderef
 		System.arraycopy(buf, 0, obuf, offset, buf.length);
-		if(logMINOR)
-			Logger.minor(this, "myCompressedRef("+setup+","+heavySetup+") returning "+obuf.length+" bytes");
+		if (logMINOR)
+			Logger.minor(this, "myCompressedRef(" + setup + "," + heavySetup
+					+ ") returning " + obuf.length + " bytes");
+
 		return obuf;
 	}
 
 	/**
-	 * The part of our node reference which is exchanged in the connection setup, compressed.
+	 * The part of our node reference which is exchanged in the connection
+	 * setup, compressed.
+	 * 
 	 * @see exportSetupFieldSet()
 	 */
 	public byte[] myCompressedSetupRef() {
@@ -449,8 +623,9 @@ public class NodeCrypto {
 	}
 
 	/**
-	 * The part of our node reference which is exchanged in the connection setup, if we don't
-	 * already have the node, compressed.
+	 * The part of our node reference which is exchanged in the connection
+	 * setup, if we don't already have the node, compressed.
+	 * 
 	 * @see exportSetupFieldSet()
 	 */
 	public byte[] myCompressedHeavySetupRef() {
@@ -459,6 +634,7 @@ public class NodeCrypto {
 
 	/**
 	 * Our full node reference, compressed.
+	 * 
 	 * @see exportSetupFieldSet()
 	 */
 	public byte[] myCompressedFullRef() {
@@ -468,26 +644,29 @@ public class NodeCrypto {
 	void addPrivateFields(SimpleFieldSet fs) {
 		fs.put("dsaPrivKey", privKey.asFieldSet());
 		fs.putSingle("ark.privURI", myARK.getInsertURI().toString(false, false));
-		// FIXME remove the conditional after we've removed it from exportPublic...
+		// FIXME remove the conditional after we've removed it from
+		// exportPublic...
 		// We must save the location!
-		if(fs.get("location") == null)
+		if (fs.get("location") == null)
 			fs.put("location", node.lm.getLocation());
 		fs.putSingle("clientNonce", Base64.encode(clientNonce));
 
 	}
 
-	public int getIdentityHash(){
+	public int getIdentityHash() {
 		return Fields.hashCode(identityHash);
 	}
 
 	/** Sign a hash */
 	DSASignature sign(byte[] hash) {
-		return DSA.sign(cryptoGroup, privKey, new NativeBigInteger(1, hash), random);
+		return DSA.sign(cryptoGroup, privKey, new NativeBigInteger(1, hash),
+				random);
 	}
 
 	public void onSetDropProbability(int val) {
-		synchronized(this) {
-			if(socket == null) return;
+		synchronized (this) {
+			if (socket == null)
+				return;
 		}
 		socket.setDropProbability(val);
 	}
@@ -498,50 +677,75 @@ public class NodeCrypto {
 	}
 
 	public PeerNode[] getPeerNodes() {
-		if(node.peers == null) return null;
-		if(isOpennet)
+		if (node.peers == null)
+			return null;
+		if (isOpennet)
 			return node.peers.getOpennetAndSeedServerPeers();
 		else
 			return node.peers.getDarknetPeers();
 	}
 
 	public boolean allowConnection(PeerNode pn, FreenetInetAddress addr) {
-    	if(config.oneConnectionPerAddress()) {
-    		// Disallow multiple connections to the same address
-    		if(node.peers.anyConnectedPeerHasAddress(addr, pn) && !detector.includes(addr)
-    				&& addr.isRealInternetAddress(false, false, false)) {
-    			Logger.normal(this, "Not sending handshake packets to "+addr+" for "+pn+" : Same IP address as another node");
-    			return false;
-    		}
+		if (config.oneConnectionPerAddress()) {
+			// Disallow multiple connections to the same address
+			if (node.peers.anyConnectedPeerHasAddress(addr, pn)
+					&& !detector.includes(addr)
+					&& addr.isRealInternetAddress(false, false, false)) {
+				Logger.normal(this, "Not sending handshake packets to " + addr
+						+ " for " + pn + " : Same IP address as another node");
+				return false;
+			}
 		}
-    	return true;
+		return true;
 	}
 
-	/** If oneConnectionPerAddress is not set, but there are peers with the same
+	/**
+	 * If oneConnectionPerAddress is not set, but there are peers with the same
 	 * IP for which it is set, disconnect them.
+	 * 
 	 * @param peerNode
 	 * @param freenetAddress
 	 */
 	public void maybeBootConnection(PeerNode peerNode,
 			FreenetInetAddress address) {
-		if(detector.includes(address)) return;
-		if(!address.isRealInternetAddress(false, false, false)) return;
-		ArrayList<PeerNode> possibleMatches = node.peers.getAllConnectedByAddress(address, true);
-		if(possibleMatches == null) return;
-		for(PeerNode pn : possibleMatches) {
-			if(pn == peerNode) continue;
-			if(pn.equals(peerNode)) continue;
-			if(pn.crypto.config.oneConnectionPerAddress()) {
-				if(pn instanceof DarknetPeerNode) {
-					if(!(peerNode instanceof DarknetPeerNode)) {
+		if (detector.includes(address))
+			return;
+		if (!address.isRealInternetAddress(false, false, false))
+			return;
+		ArrayList<PeerNode> possibleMatches = node.peers
+				.getAllConnectedByAddress(address, true);
+		if (possibleMatches == null)
+			return;
+		for (PeerNode pn : possibleMatches) {
+			if (pn == peerNode)
+				continue;
+			if (pn.equals(peerNode))
+				continue;
+			if (pn.crypto.config.oneConnectionPerAddress()) {
+				if (pn instanceof DarknetPeerNode) {
+					if (!(peerNode instanceof DarknetPeerNode)) {
 						// Darknet is only affected by other darknet peers.
-						// Opennet peers with the same IP will NOT cause darknet peers to be dropped, even if one connection per IP is set for darknet, and even if it isn't set for opennet.
+						// Opennet peers with the same IP will NOT cause darknet
+						// peers to be dropped, even if one connection per IP is
+						// set for darknet, and even if it isn't set for
+						// opennet.
 						// (Which would be a perverse configuration anyway!)
-						// FIXME likewise, FOAFs should not boot darknet connections.
+						// FIXME likewise, FOAFs should not boot darknet
+						// connections.
 						continue;
 					}
-					Logger.error(this, "Dropping peer "+pn+" because don't want connection due to others on the same IP address!");
-					System.out.println("Disconnecting permanently from your friend \""+((DarknetPeerNode)pn).getName()+"\" because your friend \""+((DarknetPeerNode)peerNode).getName()+"\" is using the same IP address "+address+"!");
+					Logger.error(
+							this,
+							"Dropping peer "
+									+ pn
+									+ " because don't want connection due to others on the same IP address!");
+					System.out
+							.println("Disconnecting permanently from your friend \""
+									+ ((DarknetPeerNode) pn).getName()
+									+ "\" because your friend \""
+									+ ((DarknetPeerNode) peerNode).getName()
+									+ "\" is using the same IP address "
+									+ address + "!");
 				}
 				node.peers.disconnectAndRemove(pn, true, true, pn.isOpennet());
 			}
@@ -553,7 +757,8 @@ public class NodeCrypto {
 	}
 
 	/**
-	 * Get the cipher for connection attempts for e.g. seednode connections from nodes we don't know.
+	 * Get the cipher for connection attempts for e.g. seednode connections from
+	 * nodes we don't know.
 	 */
 	public BlockCipher getAnonSetupCipher() {
 		return anonSetupCipher;
@@ -562,9 +767,10 @@ public class NodeCrypto {
 	public PeerNode[] getAnonSetupPeerNodes() {
 		ArrayList<PeerNode> v = new ArrayList<PeerNode>();
 		PeerNode[] peers = node.peers.myPeers;
-		for(int i=0;i<peers.length;i++) {
+		for (int i = 0; i < peers.length; i++) {
 			PeerNode pn = peers[i];
-			if(pn.handshakeUnknownInitiator() && pn.getOutgoingMangler() == packetMangler)
+			if (pn.handshakeUnknownInitiator()
+					&& pn.getOutgoingMangler() == packetMangler)
 				v.add(pn);
 		}
 		return v.toArray(new PeerNode[v.size()]);
@@ -576,11 +782,13 @@ public class NodeCrypto {
 
 	/**
 	 * Get my identity.
-	 * @param unknownInitiator Unknown-initiator connections use the hash of the pubkey as the identity to save space
-	 * in packets 3 and 4.
+	 * 
+	 * @param unknownInitiator
+	 *            Unknown-initiator connections use the hash of the pubkey as
+	 *            the identity to save space in packets 3 and 4.
 	 */
 	public byte[] getIdentity(boolean unknownInitiator) {
-		if(unknownInitiator)
+		if (unknownInitiator)
 			return this.pubKey.asBytesHash();
 		else
 			return myIdentity;
@@ -599,36 +807,46 @@ public class NodeCrypto {
 	}
 
 	public long getNodeHandle(ObjectContainer setupContainer) {
-		if(setupContainer == null) return random.nextLong();
+		if (setupContainer == null)
+			return random.nextLong();
 		// Ignore warnings, this is db4o magic.
-		ObjectSet<HandlePortTuple> result = setupContainer.query(new Predicate<HandlePortTuple>() {
-			final private static long serialVersionUID = -5442250371745036389L;
-			@Override
-			public boolean match(HandlePortTuple tuple) {
-				return tuple.portNumber == portNumber;
-			}
-		});
+		ObjectSet<HandlePortTuple> result = setupContainer
+				.query(new Predicate<HandlePortTuple>() {
+					final private static long serialVersionUID = -5442250371745036389L;
+
+					@Override
+					public boolean match(HandlePortTuple tuple) {
+						return tuple.portNumber == portNumber;
+					}
+				});
 		long handle;
-		if(result.hasNext()) {
+		if (result.hasNext()) {
 			handle = result.next().handle;
-			System.err.println("Retrieved database handle for node on port "+portNumber+": "+handle);
+			System.err.println("Retrieved database handle for node on port "
+					+ portNumber + ": " + handle);
 			return handle;
 		} else {
-			while(true) {
+			while (true) {
 				handle = random.nextLong();
 				HandlePortTuple tuple = new HandlePortTuple();
 				tuple.handle = handle;
-				// Double-check with QBE, just in case the RNG is broken (similar things have happened before!)
+				// Double-check with QBE, just in case the RNG is broken
+				// (similar things have happened before!)
 				ObjectSet os = setupContainer.get(tuple);
-				if(os.hasNext()) {
-					System.err.println("Generating database handle for node: already taken: "+handle);
+				if (os.hasNext()) {
+					System.err
+							.println("Generating database handle for node: already taken: "
+									+ handle);
 					continue;
 				}
 				tuple.portNumber = portNumber;
 				setupContainer.store(tuple);
 				setupContainer.commit();
-				if(logMINOR) Logger.minor(this, "COMMITTED");
-				System.err.println("Generated and stored database handle for node on port "+portNumber+": "+handle);
+				if (logMINOR)
+					Logger.minor(this, "COMMITTED");
+				System.err
+						.println("Generated and stored database handle for node on port "
+								+ portNumber + ": " + handle);
 				return handle;
 			}
 		}
@@ -637,10 +855,9 @@ public class NodeCrypto {
 	public boolean wantAnonAuth() {
 		return node.wantAnonAuth(isOpennet);
 	}
-	
+
 	public boolean wantAnonAuthChangeIP() {
 		return node.wantAnonAuthChangeIP(isOpennet);
 	}
 
 }
-

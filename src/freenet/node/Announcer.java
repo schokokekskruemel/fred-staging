@@ -47,13 +47,15 @@ public class Announcer {
 	private static final int STATUS_NO_SEEDNODES = -1;
 	private int runningAnnouncements;
 	/** We want to announce to 5 different seednodes. */
-	private static final int WANT_ANNOUNCEMENTS = 5;
+//	chrissi:
+	private static final int WANT_ANNOUNCEMENTS = 10;
 	private int sentAnnouncements;
 	private long startTime;
 	private long timeAddedSeeds;
 	private static final long MIN_ADDED_SEEDS_INTERVAL = 60*1000;
 	/** After we have sent 3 announcements, wait for 30 seconds before sending 3 more if we still have no connections. */
-	static final int COOLING_OFF_PERIOD = 30*1000;
+//	chrissi:
+	static final int COOLING_OFF_PERIOD = 10*1000;
 	/** Pubkey hashes of nodes we have announced to */
 	private final HashSet<ByteArrayWrapper> announcedToIdentities;
 	/** IPs of nodes we have announced to. Maybe this should be first-two-bytes, but I'm not sure how to do that with IPv6. */

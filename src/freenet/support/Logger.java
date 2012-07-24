@@ -207,6 +207,7 @@ public abstract class Logger {
 		NORMAL,
 		WARNING,
 		ERROR,
+		CUSTOM,
 		NONE; /** For being used to disable logging completely. Do not use as log level for actual log messages. */
 		
 		public boolean matchesThreshold(LogLevel threshold) {
@@ -276,6 +277,22 @@ public abstract class Logger {
 	}
 
 	// These methods log messages at various priorities using the global logger.
+	
+	public synchronized static void custom(Class<?> c, String s) {
+		logger.log(c, s, LogLevel.CUSTOM);
+	}
+
+	public synchronized static void custom(Class<?> c, String s, Throwable t) {
+		logger.log(c, s, t, LogLevel.CUSTOM);
+	}
+
+	public synchronized static void custom(Object o, String s) {
+		logger.log(o, s, LogLevel.CUSTOM);
+	}
+
+	public synchronized static void custom(Object o, String s, Throwable e) {
+		logger.log(o, s, e, LogLevel.CUSTOM);
+	}
 	
 	public synchronized static void debug(Class<?> c, String s) {
 		logger.log(c, s, LogLevel.DEBUG);

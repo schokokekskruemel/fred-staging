@@ -399,6 +399,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	protected final LinkedList<byte[]> jfkNoncesSent = new LinkedList<byte[]>();
 	private static volatile boolean logMINOR;
 	private static volatile boolean logDEBUG;
+	private static volatile boolean logCUSTOM;
 
 	static {
 		Logger.registerLogThresholdCallback(new LogThresholdCallback(){
@@ -406,6 +407,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			public void shouldUpdate(){
 				logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
 				logDEBUG = Logger.shouldLog(LogLevel.DEBUG, this);
+				logCUSTOM = Logger.shouldLog(LogLevel.CUSTOM, this);
 			}
 		});
 	}
@@ -764,6 +766,8 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 					routableConnectionCheckCount = tempRoutableConnectionCheckCount;
 				} else
 					routableConnectionCheckCount = 0;
+				
+				if (logCUSTOM) Logger.custom(this, "Found Old Peer: " + this.nominalPeer.toString() + ", identity: " + this.identityAsBase64String + ", location: " + currentLocation + ", Peer locations: " + Arrays.toString(currentPeersLocation));
 			}
 		} else {
 			neverConnected = true;
@@ -1139,6 +1143,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	public MessageItem sendAsync(Message msg, AsyncMessageCallback cb, ByteCounter ctr) throws NotConnectedException {
 		if(ctr == null)
 			Logger.error(this, "Bytes not logged", new Exception("debug"));
+		if (logCUSTOM) Logger.custom(this, "Send message: " + msg.toString() + " to " + detectedPeer);
 		if(logMINOR)
 			Logger.minor(this, "Sending async: " + msg + " : " + cb + " on " + this+" for "+node.getDarknetPortNumber()+" priority "+msg.getPriority());
 		if(!isConnected()) {
@@ -1867,10 +1872,13 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			locSetTime = System.currentTimeMillis();
 		}
 		node.peers.updatePMUserAlert();
-		if(anythingChanged)
+		if(anythingChanged) {
 			// Not urgent. This makes up the majority of the total writes.
 			// Writing it on shutdown is sufficient.
 			node.peers.writePeers(isOpennet());
+			if (logCUSTOM) Logger.custom(this, "Location update of: " + this.detectedPeer + ";"+ this.identityAsBase64String + ";" + currentLocation + ";" + Arrays.toString(currentPeersLocation));
+		}
+			
 		setPeerNodeStatus(System.currentTimeMillis());
 	}
 
@@ -1919,6 +1927,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* @param newPeer The new address of the peer.
 	*/
 	public void changedIP(Peer newPeer) {
+		if (!newPeer.toString().equals(detectedPeer.toString())) {
+			if (logCUSTOM) Logger.custom(this, "IP update: " + detectedPeer + ";"+ newPeer.toString());	
+		}
 		setDetectedPeer(newPeer);
 	}
 
@@ -2088,6 +2099,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	*/
 	public long completedHandshake(long thisBootID, byte[] data, int offset, int length, BlockCipher outgoingCipher, byte[] outgoingKey, BlockCipher incommingCipher, byte[] incommingKey, Peer replyTo, boolean unverified, int negType, long trackerID, boolean isJFK4, boolean jfk4SameAsOld, byte[] hmacKey, BlockCipher ivCipher, byte[] ivNonce, int ourInitialSeqNum, int theirInitialSeqNum, int ourInitialMsgID, int theirInitialMsgID) {
 		long now = System.currentTimeMillis();
+		if (logCUSTOM) Logger.custom(this, "Completed Handshake with " + detectedPeer);
 		if(logMINOR) Logger.minor(this, "Tracker ID "+trackerID+" isJFK4="+isJFK4+" jfk4SameAsOld="+jfk4SameAsOld);
 
 		// Update sendHandshakeTime; don't send another handshake for a while.
@@ -2937,6 +2949,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			changedAnything = true;
 		if(shouldUpdatePeerCounts)
 			node.peers.updatePMUserAlert();
+		if (changedAnything) {
+			if (logCUSTOM) Logger.custom(this, "Noderef update: " + detectedPeer + ";" + nominalPeer.toString() + ";" + currentLocation + ";" + identityAsBase64String);
+		}
 		return changedAnything;
 	}
 
@@ -4561,6 +4576,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			System.arraycopy(runningAnnounceUIDs, 0, newList, 0, x);
 			runningAnnounceUIDs = newList;
 		}
+		if (logCUSTOM) Logger.custom(this, "Completed Announce with: " + detectedPeer);
 		return true;
 	}
 
@@ -6172,6 +6188,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		public void processDecryptedMessage(byte[] data, int offset,
 				int length, int overhead) {
 			Message m = node.usm.decodeSingleMessage(data, offset, length, PeerNode.this, overhead);
+			if (logCUSTOM) Logger.custom(this, "Received message: " + m.toString() + " from " + detectedPeer);
 			if(m == null) {
 				if(logMINOR) Logger.minor(this, "Message not decoded from "+PeerNode.this+" ("+PeerNode.this.getVersionNumber()+")");
 				return;

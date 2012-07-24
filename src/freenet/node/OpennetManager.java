@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.Map;
+import java.util.Vector;
 
 import freenet.io.comm.ByteCounter;
 import freenet.io.comm.DMT;
@@ -63,6 +64,8 @@ public class OpennetManager {
 	final Node node;
 	final NodeCrypto crypto;
 	final Announcer announcer;
+//	Chrissi: added
+	final RoutedPinger pinger;
 	final SeedAnnounceTracker seedTracker = new SeedAnnounceTracker();
 
 	/** Our peers. PeerNode's are promoted when they successfully fetch a key. Normally we take
@@ -114,12 +117,14 @@ public class OpennetManager {
 	public static final int MIN_TIME_BETWEEN_OFFERS = 30*1000;
 
 	private static volatile boolean logMINOR;
+	private static volatile boolean logCUSTOM;
 
 	static {
 		Logger.registerLogThresholdCallback(new LogThresholdCallback(){
 			@Override
 			public void shouldUpdate(){
 				logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
+				logCUSTOM = Logger.shouldLog(LogLevel.CUSTOM, this);
 			}
 		});
 	}
@@ -159,6 +164,7 @@ public class OpennetManager {
 	public OpennetManager(Node node, NodeCryptoConfig opennetConfig, long startupTime, boolean enableAnnouncement) throws NodeInitException {
 		this.creationTime = System.currentTimeMillis();
 		this.node = node;
+		this.pinger = RoutedPinger.getRoutedPinger(this.node);
 		crypto =
 			new NodeCrypto(node, true, opennetConfig, startupTime, node.enableARKs);
 
@@ -239,6 +245,7 @@ public class OpennetManager {
 		File nodeFile = node.nodeDir().file("opennet-"+crypto.portNumber);
 		File backupNodeFile = node.nodeDir().file("opennet-"+crypto.portNumber+".bak");
 		writeFile(nodeFile, backupNodeFile);
+		crypto.writeOpennetRef();
 	}
 
 	private void writeFile(File orig, File backup) {
@@ -309,6 +316,7 @@ public class OpennetManager {
 		crypto.start();
 		if(announcer!= null)
 			announcer.start();
+		node.executor.execute(pinger);
 	}
 
 	/**
@@ -656,6 +664,7 @@ public class OpennetManager {
 			if(logMINOR)
 				Logger.minor(this, "Dropping "+toDrop);
 			node.peers.disconnectAndRemove(toDrop, true, true, true);
+			printLocationStatus();
 		}
 	}
 
@@ -840,7 +849,8 @@ public class OpennetManager {
 				targetPeers = MIN_PEERS_FOR_SCALING;
 			if(max > targetPeers) max = targetPeers; // Allow user to reduce it.
 		}
-		return max;
+//		return max;
+		return 40;
 	}
 
 	/** Get the target number of opennet peers */
@@ -1259,6 +1269,17 @@ public class OpennetManager {
 
 	public void drawSeedStatsBox(HTMLNode content) {
 		seedTracker.drawSeedStats(content);
+	}
+	
+	public void printLocationStatus() {
+		if (logCUSTOM) {
+			PeerNode[] peers = node.peers.connectedPeers;
+			Vector<Double> locations = new Vector<Double>();
+			for (PeerNode peer : peers) {
+				locations.add(peer.getLocation());
+			}
+			Logger.custom(this, "Current Locations: " + node.lm.getLocation() + ";" + locations.toString());
+		}
 	}
 
 }

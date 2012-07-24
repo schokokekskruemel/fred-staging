@@ -822,22 +822,21 @@ public class NodeDispatcher implements Dispatcher, Runnable {
 	 */
 	boolean handleRouted(Message m, PeerNode source) {
 		if(logMINOR) Logger.minor(this, "handleRouted("+m+ ')');
-
 		long id = m.getLong(DMT.UID);
 		Long lid = Long.valueOf(id);
 		short htl = m.getShort(DMT.HTL);
 		byte[] identity = ((ShortBuffer) m.getObject(DMT.NODE_IDENTITY)).getData();
 		if(source != null) htl = source.decrementHTL(htl);
 		RoutedContext ctx;
-		ctx = routedContexts.get(lid);
-		if(ctx != null) {
-			try {
-				source.sendAsync(DMT.createFNPRoutedRejected(id, htl), null, nodeStats.routedMessageCtr);
-			} catch (NotConnectedException e) {
-				if(logMINOR) Logger.minor(this, "Lost connection rejecting "+m);
-			}
-			return true;
-		}
+//		ctx = routedContexts.get(lid);
+//		if(ctx != null) {
+//			try {
+//				source.sendAsync(DMT.createFNPRoutedRejected(id, htl), null, nodeStats.routedMessageCtr);
+//			} catch (NotConnectedException e) {
+//				if(logMINOR) Logger.minor(this, "Lost connection rejecting "+m);
+//			}
+//			return true;
+//		}
 		ctx = new RoutedContext(m, source, identity);
 		synchronized (routedContexts) {
 			routedContexts.put(lid, ctx);
@@ -894,7 +893,7 @@ public class NodeDispatcher implements Dispatcher, Runnable {
 				next = null;
 			}
 			if(next == null)
-			next = node.peers.closerPeer(pn, ctx.routedTo, target, true, node.isAdvancedModeEnabled(), -1, null,
+				next = node.peers.closerPeer(pn, ctx.routedTo, target, true, node.isAdvancedModeEnabled(), -1, null,
 				        null, htl, 0, pn == null, false, false);
 			if(logMINOR) Logger.minor(this, "Next: "+next+" message: "+m);
 			if(next != null) {

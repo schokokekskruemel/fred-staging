@@ -4,6 +4,6 @@
 	<classpathentry including="freenet/|org/" kind="src" output="build/test" path="test"/>
 	<classpathentry kind="lib" path="/usr/share/java/junit.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-	<classpathentry kind="lib" path="lib/freenet/freenet-ext.jar"/>
+	<classpathentry kind="lib" path="/home/kruemel/git/fred-staging_1407/lib/freenet/freenet-ext.jar"/>
 	<classpathentry kind="output" path="build"/>
 </classpath>
