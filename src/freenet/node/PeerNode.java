@@ -492,6 +492,10 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(fs.getBoolean("opennet", false) != isOpennet)
 			throw new FSParseException("Trying to parse a darknet peer as opennet or an opennet peer as darknet isOpennet="+isOpennet+" boolean = "+fs.getBoolean("opennet", false)+" string = \""+fs.get("opennet")+"\"");
 
+		if (logCUSTOM) {
+			Logger.custom(this, "Noderef update: " + fs.toOrderedString());
+		}
+		
 		/* Read the DSA key material for the peer */
 		try {
 			SimpleFieldSet sfs = fs.subset("dsaGroup");
@@ -2950,7 +2954,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(shouldUpdatePeerCounts)
 			node.peers.updatePMUserAlert();
 		if (changedAnything) {
-			if (logCUSTOM) Logger.custom(this, "Noderef update: " + detectedPeer + ";" + nominalPeer.toString() + ";" + currentLocation + ";" + identityAsBase64String);
+//			if (logCUSTOM) Logger.custom(this, "Noderef update: " + detectedPeer + ";" + nominalPeer.toString() + ";" + currentLocation + ";" + identityAsBase64String);
+			if (logCUSTOM) Logger.custom(this, "Noderef update: " + fs.toOrderedString());
+			
 		}
 		return changedAnything;
 	}
